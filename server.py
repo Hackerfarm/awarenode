@@ -3,7 +3,17 @@ from bottle import Bottle, run, static_file, request
 import bottle
 import bottle_pgsql
 import local_config
+import json
+from datetime import datetime
+
 import os
+
+
+class DateTimeEncoder(json.JSONEncoder):
+    def default(self, o):
+        if isinstance(o, datetime):
+            return o.isoformat()
+        return json.JSONEncoder.default(self, o)
 
 bottle.debug(True)
 rootdir='/usr/share/www/static/'
@@ -25,7 +35,7 @@ def server_static(filepath):
 def get_all_readings(sensor_id,db):
     db.execute('SELECT * FROM readings WHERE sensorid=%s;', (sensor_id,))
     rows = db.fetchall()
-    return str(rows)
+    return str(json.dumps(rows, cls=DateTimeEncoder))
 
 @app.post('/readings/<sensor_id:int>')
 def post_reading(sensor_id, db):
