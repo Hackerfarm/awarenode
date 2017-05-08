@@ -47,8 +47,9 @@ def get_all_readings(sensor_id,db):
         yaxis=request.query.get('show_field', 'id')
         return template('readings_graph', table=rows, xaxis=xaxis, yaxis=yaxis)
 
-@app.post('/readings/<sensor_id:int>')
-def post_reading(sensor_id, db):
+@app.post('/new_reading')
+def post_reading(db):
+    sensor_id = request.forms.sensorid
     value = request.forms.value
     tc = request.forms.timestamp
     sl = request.forms.sequence
