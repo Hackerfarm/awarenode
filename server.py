@@ -16,7 +16,7 @@ class DateTimeEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, o)
 
 bottle.debug(True)
-rootdir='/usr/share/www/static/'
+rootdir='./static/'
 
 app = Bottle()
 #plugin = bottle_pgsql.Plugin('dbname=awarenode user={} password={}'.format(local_config.db_user, local_config.db_password))
@@ -39,7 +39,13 @@ def get_all_readings(sensor_id,db):
     if format=='json':
         return str(json.dumps(rows, cls=DateTimeEncoder))
     if format=='table':
-        return template('readings_table', table=rows)
+        ordering=request.query.get('order_by', 'id')
+        return template('readings_table', table=rows, ordering=ordering)
+    if format=='graph':
+        print 'graph'
+        xaxis=request.query.get('order_by', 'id')
+        yaxis=request.query.get('show_field', 'id')
+        return template('readings_graph', table=rows, xaxis=xaxis, yaxis=yaxis)
 
 @app.post('/readings/<sensor_id:int>')
 def post_reading(sensor_id, db):
