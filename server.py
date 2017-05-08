@@ -1,4 +1,4 @@
-from bottle import Bottle, run, static_file, request
+from bottle import Bottle, run, static_file, request, template
 
 import bottle
 import bottle_pgsql
@@ -33,9 +33,13 @@ def server_static(filepath):
 
 @app.route('/readings/<sensor_id:int>')
 def get_all_readings(sensor_id,db):
+    format=request.query.get('format','json')
     db.execute('SELECT * FROM readings WHERE sensorid=%s;', (sensor_id,))
     rows = db.fetchall()
-    return str(json.dumps(rows, cls=DateTimeEncoder))
+    if format=='json':
+        return str(json.dumps(rows, cls=DateTimeEncoder))
+    if format=='table':
+        return template('readings_table', table=rows)
 
 @app.post('/readings/<sensor_id:int>')
 def post_reading(sensor_id, db):
