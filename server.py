@@ -22,6 +22,9 @@ app = Bottle()
 plugin = bottle_pgsql.Plugin('dbname=awarenode user={} password={}'.format(local_config.db_user, local_config.db_password))
 app.install(plugin)
 
+@app.route('/')
+@app.route('')
+@app.route('/index.html')
 @app.route('/hello')
 def hello():
     return static_file('index.html', root=rootdir)
