@@ -1,4 +1,5 @@
 from bottle import Bottle, run, static_file, request, template
+from psycopg2.extensions import AsIs
 
 import bottle
 import bottle_pgsql
@@ -36,7 +37,9 @@ def server_static(filepath):
 @app.route('/readings/<sensor_id:int>')
 def get_all_readings(sensor_id,db):
     format=request.query.get('format','json')
-    db.execute('SELECT * FROM readings WHERE sensorid=%s;', (sensor_id,))
+    xaxis=request.query.get('order_by', 'id')
+
+    db.execute('SELECT * FROM readings WHERE sensorid=%s ORDER BY %s;', (sensor_id,AsIs(xaxis)))
     rows = db.fetchall()
     if format=='json':
         return str(json.dumps(rows, cls=DateTimeEncoder))
@@ -45,7 +48,6 @@ def get_all_readings(sensor_id,db):
         return template('readings_table', table=rows, ordering=ordering)
     if format=='graph':
         print 'graph'
-        xaxis=request.query.get('order_by', 'id')
         yaxis=request.query.get('show_field', 'value')
         return template('readings_graph', table=rows, xaxis=xaxis, yaxis=yaxis)
 
