@@ -59,4 +59,4 @@ def post_reading(db):
     db.execute('INSERT INTO readings (sensorid, value, timestamp_server, sequence_local, timestamp_client) VALUES (%s, %s, now(), %s, %s);', (sensor_id, value, sl, tc))
     return
 
-run(app, host='localhost', port=8080, reloader=True)
+run(app, host=local_config.hostname, port=local_config.port, reloader=True)
