@@ -1,1 +1,47 @@
-<H1>HELLO WORLD</H1>
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" >
+    <link rel="stylesheet" type="text/css" href="iv.css" />
+
+    <title>Awarenode testing server</title>
+</head>
+
+<body>
+<H1>Awarenode testing server</H1>
+
+<p>Hi!</p>
+<p>The source code can be found on <a href="https://github.com/Hackerfarm/awarenode">github</a></p>
+<H2>Reading</H2>
+<p>You can access sensors' data with the following URL:</p>
+<p><i>/readings/[sensor_id]</i></br></p>
+<p>For instance, <a href="/readings/1">/readings/1</a> will give you access to the data of the sensor of ID 1. By default the data is sent as a json string. You can change that by passing a <i>format</i> parameter. It can be either <i>json</i>, <i>table</i> or <i>graph</i>:</p>
+
+<p><a href="/readings/1?format=json">/readings/1?format=json</a></p>
+<p><a href="/readings/1?format=table">/readings/1?format=table</a></p>
+<p><a href="/readings/1?format=graph">/readings/1?format=graph</a></p>
+<br/>
+<p>The <i>table</i> format can have two additional parameters: <i>show_field</i> and <i>order_by</i> indicating, respectively, the column of the database used to plot the y-axis and the x-axis. Example:<br/></p>
+<p><a href="/readings/2?format=graph&order_by=sequence_local&show_field=value">/readings/2?format=graph&order_by=sequence_local&show_field=value</a></p>
+<h2>Writing</H2>
+<p>Posting new data is done through a simple POST request to the URL <i>/new_reading</i>:</p>
+<div>
+    <form action="/new_reading" method="POST">
+        <p>sensorid:<input type="text" name="sensorid" value="1" size="4"></p>
+        <p>value:<input type="text" name="value" value="0" size=4></p>
+        <p>sequence:<input type="text" name="sequence" size=4></p>
+        <p>timestamp:<input type="text" name="timestamp" size=4></p>
+        <input type="submit">
+    </form> 
+</div>
+<H2>Security</H2>
+<p>There is currently none. Anyone can write on any sensor. One can make DDOS easily. Please do not share this URL.</p>
+
+<H2>To do</H2>
+<ul>
+    <li>Implement a delete function</li>
+    <li>Put some security/authentication here</li>
+    <li>Detect duplicates with the sequence number</li>
+    <li>Find a more lightweight plotting library (2 MB, seriously?)</li>
+</ul>
+</body>
+</html>

@@ -1,0 +1,28 @@
+	body {
+		text-align:left;
+		background-color:#efefff;
+
+		font-size:0.85em;
+		}
+	div {
+		text-align:justify;
+		position:relative;
+		} 
+	ul {
+		text-align:justify;
+		position:relative;
+		} 
+	p {
+		text-align:justify;
+		position:relative;
+		}
+
+	form 
+	{
+		font-family:"Monospace",monospace;
+        border-style:solid;
+        border-width:1px;
+        padding:3px;
+        display:table;
+        margin:auto;
+	}

@@ -19,8 +19,7 @@ bottle.debug(True)
 rootdir='./static/'
 
 app = Bottle()
-#plugin = bottle_pgsql.Plugin('dbname=awarenode user={} password={}'.format(local_config.db_user, local_config.db_password))
-plugin = bottle_pgsql.Plugin('dbname=awarenode user=postgres password=tototo'.format(local_config.db_user, local_config.db_password))
+plugin = bottle_pgsql.Plugin('dbname=awarenode user={} password={}'.format(local_config.db_user, local_config.db_password))
 app.install(plugin)
 
 @app.route('/hello')
@@ -44,7 +43,7 @@ def get_all_readings(sensor_id,db):
     if format=='graph':
         print 'graph'
         xaxis=request.query.get('order_by', 'id')
-        yaxis=request.query.get('show_field', 'id')
+        yaxis=request.query.get('show_field', 'value')
         return template('readings_graph', table=rows, xaxis=xaxis, yaxis=yaxis)
 
 @app.post('/new_reading')
