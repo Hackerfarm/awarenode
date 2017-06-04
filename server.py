@@ -36,8 +36,12 @@ def server_static(filepath):
 
 @app.route('/readings/<sensor_id:int>')
 def get_all_readings(sensor_id,db):
-    format=request.query.get('format','json')
+    format=request.query.get('format','value')
     xaxis=request.query.get('order_by', 'id')
+    
+    if format=='value':
+        db.execute('SELECT value FROM readings WHERE sensorid=%s ORDER BY timestamp_server DESC LIMIT 1', (sensor_id,))
+        return str(db.fetchone().get('value', -1))
 
     db.execute('SELECT * FROM readings WHERE sensorid=%s ORDER BY %s;', (sensor_id,AsIs(xaxis)))
     rows = db.fetchall()
