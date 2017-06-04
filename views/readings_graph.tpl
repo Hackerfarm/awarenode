@@ -1,13 +1,17 @@
+<html>
 <head>
-    <script src="/static/plotly-latest.min.js"></script>
+    <link rel="stylesheet"
+          href="/static/chartist.min.css">
+    <script src="/static/chartist.min.js"></script>
 </head>
 
-<div id="tester" style="width:600px;height:250px;"></div>
-% i=0
+<body>
+<div class="ct-chart"></div>
+
 <script>
-    TESTER = document.getElementById('tester');
-    Plotly.plot( TESTER, [{
-    x: [\\
+% i=0
+var data = {
+    labels: [\\
         % for row in table:
             % if xaxis!="":
                 {{row[xaxis]}}, \\
@@ -17,10 +21,16 @@
             % i+=1
         % end
         ],
-    y: [
+    series: [[
         % for row in table:
             {{row[yaxis]}}, \\
         % end
-        ] }], {
-    margin: { t: 0 } } );
+        ]]
+};
+
+new Chartist.Line('.ct-chart', data);
+
 </script>
+
+</body>
+</html>
