@@ -65,6 +65,7 @@ def post_reading(db):
         tc = None
     if sl == '':
         sl = None
+    db.execute('SET datestyle = "ISO, YMD";')
     db.execute('INSERT INTO readings (sensorid, value, timestamp_server, sequence_local, timestamp_client) VALUES (%s, %s, now(), %s, %s);', (sensor_id, value, sl, tc))
     return
 
