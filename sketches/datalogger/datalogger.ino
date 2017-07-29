@@ -7,83 +7,82 @@
 #include <SdFat.h>
 #include <pcf2127.h>
 #include <stdint.h>
+#include <OneWire.h>
 
-/*
-This struct will be common for all nodes
-*/
+#include <src/chb_eeprom.h>
+
 typedef struct{
   int32_t sensor_id;
   int32_t value;
 } reading_t;
 
 
-/*
-This struct depends on the note type
-*/
+
 typedef struct{
+  reading_t vsol;
+  reading_t vbat;
   reading_t temperature;
   reading_t humidity;
-  reading_t battery;
-  reading_t solar;
+  reading_t distance_to_water_surface;
   int32_t count;
   int32_t signal_strength;
   char timestamp[19];
   int32_t node_id;
-} techrice_packet_t;
-
-/*
-These values will be provided by the API
-*/
-#define NODE_ID 1
-#define EDGE_ID 3
-#define TEMPERATURE_SENSOR_ID 3
-#define HUMIDITY_SENSOR_ID 4
-#define BATTERY_SENSOR_ID 2
-#define SOLAR_SENSOR_ID 1
-#define SONAR_SENSOR_ID 5
-
-techrice_packet_t r = {
-  {TEMPERATURE_SENSOR_ID,0}, 
-  {HUMIDITY_SENSOR_ID,0},
-  {BATTERY_SENSOR_ID,0}, 
-  {SOLAR_SENSOR_ID,0},
-  0,
-  0,
-  "",
-  NODE_ID
-};
+} awarenode_packet_t;
 
 
-SdFat sd;
-SdFile myFile;
 
-#define DATECODE "07-29-2017"
-#define TITLE "SABOTEN 900 MHz Long Range\nDATALOGER\n"
-#define FILENAME "AWANODE.TXT"
+awarenode_packet_t main_packet;
+
+
+
+#define EDGE_ID BROADCAST_ADDR
+
+#define RTC_CLOCK_SOURCE 0b11 // Selects the clock source. 0b11 selects 1/60Hz clock.
+#define RTC_SLEEP 30 // Number of timer clock cycles before interrupt is generated.
+
+#define SBUF_SIZE 200 //Note that due to inefficient implementation of sd_write() the memory footprint is actually twice of this value.
+
+#define EEPROM_CONF_ADDR 0x12
+
+#define DATECODE "14-08-2016"
+#define TITLE "SABOTEN 900 MHz Long Range\nDATALOGGER\n"
 #define ADCREFVOLTAGE 3.3
+#define FILENAME "AWANODE.TXT"
 
-int hgmPin = 14;
+#define OneWireSensor 1
+
+int hgmPin = 22;
 int sdCsPin = 15;
-int rtcCsPin = 28; 
+int rtcCsPin = 28;
 int ledPin = 18;
 int sdDetectPin = 19;
 int vbatPin = 31;
 int vsolPin = 29;
+int sensorPin = 8;
+int sonarTriggerPin = 5;
+int sonarEchoPin = 7;
+int sonarAwakePin = 10;
+int debugModePin = 4;
+int burstModePin = 3;
 
-int dupe_cnt = 0;
-unsigned char old[100];
+
+int debug_mode = 0;
+
+// Pins that will not interfer with the SPI: 2 to 5, 7 to 10 + 14 and 15
 
 unsigned char buf[100];
 
 // this is for printf
-static FILE uartout = {0};  
+static FILE uartout = {0};
 
 PCF2127 pcf(0, 0, 0, rtcCsPin);
+SdFat sd;
+SdFile myFile;
 
-
-
-
-
+#ifdef OneWireSensor
+OneWire OW_temperature_probe(sensorPin);
+#endif
 
 
 
@@ -91,75 +90,86 @@ PCF2127 pcf(0, 0, 0, rtcCsPin);
 
 
 void setup()
-{    
-  uint8_t i, sdDetect;
+{
   // fill in the UART file descriptor with pointer to writer.
   fdev_setup_stream (&uartout, uart_putchar, NULL, _FDEV_SETUP_WRITE);
-  
+
   // The uart is the standard output device STDOUT.
   stdout = &uartout ;
-  
-  old[0] = 3;
-  
+
   // set up high gain mode pin
   pinMode(hgmPin, OUTPUT);
   digitalWrite(hgmPin, LOW);
-  
+
   // set up rtc chip select
   pinMode(rtcCsPin, OUTPUT);
   digitalWrite(rtcCsPin, HIGH);
-  
+
   pinMode(sdCsPin, OUTPUT);
   digitalWrite(sdCsPin, HIGH);
-  
+
   // set up sd card detect
   pinMode(sdDetectPin, INPUT);
   digitalWrite(sdDetectPin, HIGH);
-  
+
   // set up battery monitoring
   pinMode(vbatPin, INPUT);
-  
+
   // set up LED
   pinMode(ledPin, OUTPUT);
   digitalWrite(ledPin, LOW);
   //delay(300);
   //digitalWrite(ledPin, LOW);
-  
+
+  // set up the sonar
+  pinMode(sonarTriggerPin, OUTPUT);
+  pinMode(sonarEchoPin, INPUT);
+  pinMode(sonarAwakePin, OUTPUT);
+  digitalWrite(sonarAwakePin, HIGH);
+
+  // set up the burst and debug mode pin
+  pinMode(debugModePin, INPUT_PULLUP);
+  pinMode(burstModePin, INPUT_PULLUP);
+
+
   // Initialize the chibi command line and set the speed to 57600 bps
   chibiCmdInit(57600);
-  
 
-  pcf.enableMinuteInterrupt();
-  pcf.setInterruptToPulse();
+
+//  pcf.enableMinuteInterrupt();
+//  pcf.enableSecondInterrupt();
+//  pcf.setInterruptToPulse();
   attachInterrupt(2, rtcInterrupt, FALLING);
-  
+
   // Initialize the chibi wireless stack
   chibiInit();
-  
+
+  // Reads the node and sensors ID from the EEPROM
+  cmdReadConf(0,0);
+
   // set up chibi regs for external P/A
   //chibiRegWrite(0x4, 0xA0);
-    
+
   // datecode version
   printf(TITLE);
-  printf("Datecode: %s\n", DATECODE);
+  printf("Datecode: %s\n\r", DATECODE);
 
+  pcf.writeDate(16, 1, 29, 4);
+  pcf.writeTime(10, 15, 0);
 
-  chibiSetShortAddr(NODE_ID);
-
-  Serial.print("NODE_ID: ");
-  Serial.println(r.node_id);
+  chibiSetShortAddr(main_packet.node_id);
 
   // check for SD and init
+  uint8_t sdDetect;
   sdDetect = digitalRead(sdDetectPin);
   if (sdDetect == 0)
   {
     // init the SD card
-    if (!sd.begin(sdCsPin)) 
+    if (!sd.begin(sdCsPin))
     {
-      
+
       Serial.println("Card failed, or not present");
-      sd.initErrorHalt();
-      return;
+      sd.initErrorPrint();
     }
     printf("SD Card is initialized.\n");
   }
@@ -169,33 +179,40 @@ void setup()
   }
 
 
+
   // This is where you declare the commands for the command line.
   // The first argument is the alias you type in the command line. The second
   // argument is the name of the function that the command will jump to.
-  
+
   chibiCmdAdd("getsaddr", cmdGetShortAddr);  // set the short address of the node
   chibiCmdAdd("setsaddr", cmdSetShortAddr);  // get the short address of the node
   chibiCmdAdd("send", cmdSend);   // send the string typed into the command line
-  chibiCmdAdd("send2", cmd_tx2);  
+  chibiCmdAdd("send2", cmd_tx2);
   chibiCmdAdd("rd", cmd_reg_read);   // send the string typed into the command line
   chibiCmdAdd("wr", cmd_reg_write);   // send the string typed into the command line
   chibiCmdAdd("slr", cmdSleepRadio);
   chibiCmdAdd("slm", cmdSleepMcu);
-  chibiCmdAdd("sdw", cmdSdWrite);
-  chibiCmdAdd("sdr", cmdSdRead);
-  chibiCmdAdd("sdc", cmdSdClear);
   chibiCmdAdd("time", cmdWriteTime);
   chibiCmdAdd("date", cmdWriteDate);
   chibiCmdAdd("rdt", cmdReadDateTime);
   chibiCmdAdd("bat", cmdVbatRead);
   chibiCmdAdd("sol", cmdVsolRead);
-  
   chibiCmdAdd("tmp", cmdReadTemp);
-  
+  chibiCmdAdd("start", cmdStartCycle);
+  chibiCmdAdd("rconf", cmdReadConf);
+  chibiCmdAdd("wconf", cmdWriteConf);
+  chibiCmdAdd("sdw", cmdSdWrite);
+  chibiCmdAdd("sdr", cmdSdRead);
+  chibiCmdAdd("sdc", cmdSdClear);
+
+
   // high gain mode
   digitalWrite(hgmPin, HIGH);
+  if(digitalRead(debugModePin)==LOW){
+    debug_mode = 1;
+    digitalWrite(sonarAwakePin, HIGH);
+  }
 
-  
 }
 
 /**************************************************************************/
@@ -203,44 +220,67 @@ void setup()
 /**************************************************************************/
 void loop()
 {
-  /*chibiCmdPoll();
-  return;*/
-  
-  static int count = 0;
-  
-  // This function checks the command line to see if anything new was typed.
-//  chibiCmdPoll();
+  if(debug_mode==1){
+    if(digitalRead(debugModePin)==HIGH){
+      debug_mode = 0;
+    }
+    chibiCmdPoll();
+    return;
+  }
 
-  get_temp(r.temperature.value, r.humidity.value);
-  get_vbat(r.battery.value);
-  get_vsol(r.solar.value);
-  r.count++;
-  get_timestamp(r.timestamp);
+  digitalWrite(sonarAwakePin, HIGH);
 
-  char sbuf[200];
-  sprintf(sbuf, "Node_id: %d, count: %d, timestamp: %19s, id %d: %dC (temperature), id %d: %d (humidity), id %d: %dmV (battery), id %d: %dmV (solar),", 
-                (int) r.node_id,
-                (int) r.count, 
-                (int) r.timestamp,
-                (int) r.temperature.sensor_id, (int) r.temperature.value,
-                (int) r.humidity.sensor_id, (int) r.humidity.value,
-                (int) r.battery.sensor_id, (int) r.battery.value,
-                (int) r.solar.sensor_id, (int) r.solar.value);
+#ifdef OneWireSensor
+  get_temp_ow(main_packet.temperature.value);
+#else
+  get_temp(main_packet.temperature.value, main_packet.humidity.value);
+#endif
+  get_vbat(main_packet.vbat.value);
+  get_vsol(main_packet.vsol.value);
+  get_sonar(main_packet.distance_to_water_surface.value);
+  delay(1000);
+  get_sonar(main_packet.distance_to_water_surface.value);
+  /*if(r.sonar.value>10){
+    digitalWrite(sonarAwakePin, LOW);
+  }
+  else{
+    digitalWrite(sonarAwakePin, HIGH);
+  }*/
+  main_packet.count++;
+  get_timestamp(main_packet.timestamp);
+
+  char sbuf[SBUF_SIZE];
+  sprintf(sbuf, "Port: %d Bit: %d",digitalPinToPort(hgmPin), digitalPinToBitMask(hgmPin));
   Serial.println(sbuf);
 
-  sprintf(sbuf, "%s|%d=%d;%d=%d;\n",
-          r.timestamp,
-          r.battery.sensor_id, r.battery.value,
-          r.solar.sensor_id, r.solar.value);
-  cmdSdWrite(1, (char**)(&sbuf));
+
+  sprintf(sbuf, "Node_id: %d, count: %d, timestamp: %19s, id %d: %dC (temperature), id %d: %d (humidity), id %d: %dmV (battery), id %d: %dmV (solar), id %d: %d cm (water level)",
+                (int) main_packet.node_id,
+                (int) main_packet.count,
+                (int) main_packet.timestamp,
+                (int) main_packet.temperature.sensor_id, (int) main_packet.temperature.value,
+                (int) main_packet.humidity.sensor_id, (int) main_packet.humidity.value,
+                (int) main_packet.vbat.sensor_id, (int) main_packet.vbat.value,
+                (int) main_packet.vsol.sensor_id, (int) main_packet.vsol.value,
+                (int) main_packet.distance_to_water_surface.sensor_id, (int) main_packet.distance_to_water_surface.value);
+  Serial.println(sbuf);
+  //chibiTx(EDGE_ID, (unsigned char*)(&main_packet), sizeof(main_packet));
 
 
-  //chibiTx(EDGE_ID, (unsigned char*)(&r), sizeof(r));
+  sprintf(sbuf, "%s|%d|%d=%d;%d=%d;\n",
+          (int)main_packet.timestamp,
+          (int)main_packet.count,
+          (int)main_packet.temperature.sensor_id, (int) main_packet.temperature.value,
+          (int)main_packet.humidity.sensor_id, (int) main_packet.humidity.value,
+          (int)main_packet.vbat.sensor_id, (int)main_packet.vbat.value,
+          (int)main_packet.vsol.sensor_id, (int)main_packet.vsol.value);
+  SdWriteBuf(sbuf);
+  Serial.println(sbuf);
 
-
-  
+  free(sbuf);
   sleep_mcu();
 }
+
 
 void rtcInterrupt(){
   Serial.println("Interrupt");
@@ -251,7 +291,7 @@ void sleep_radio(){
   digitalWrite(hgmPin, LOW);
   // set up chibi regs to turn off external P/A
   chibiRegWrite(0x4, 0x20);
-  chibiSleepRadio(1);  
+  chibiSleepRadio(1);
 }
 
 void wakeup_radio(){
@@ -259,29 +299,58 @@ void wakeup_radio(){
   digitalWrite(hgmPin, HIGH);
   // set up chibi regs to turn on external P/A
   chibiRegWrite(0x4, 0xA0);
-  
-  
+
+
 }
 
 void sleep_mcu(){
   attachInterrupt(2, rtcInterrupt, FALLING);
-  delay(100);
+  digitalWrite(sonarAwakePin, LOW);
+  pinMode(sonarTriggerPin, INPUT);
+
+  pinMode(debugModePin, INPUT);
+  pinMode(burstModePin, INPUT);
+
+  delay(1000);
 
   set_sleep_mode(SLEEP_MODE_PWR_DOWN);
   sleep_radio();
   sleep_enable();        // setting up for sleep ...
-  
+
   ADCSRA &= ~(1 << ADEN);    // Disable ADC
   Serial.println("Going to sleep");
-  delay(100);
+  delay(1000);
   digitalWrite(ledPin, LOW);
-  sleep_mode();
 
+
+  if(digitalRead(burstModePin)==HIGH){
+    // Every 30 minutes
+    pcf.runWatchdogTimer(0b11,30);
+    Serial.println("Sleeping for 30 minutes");
+    Serial.flush();
+  }
+  else{
+    // Every 10 seconds
+    pcf.runWatchdogTimer(0b10,10);
+    Serial.println("Sleeping for 10 seconds");
+    Serial.flush();
+  }
+
+  //pcf.runWatchdogTimer(RTC_CLOCK_SOURCE, RTC_SLEEP);
+
+  sleep_mode();
+  /* ....ZZzzzzZZzzzZZZzz....*/
   sleep_disable();
   Serial.println("Awake");
   digitalWrite(ledPin, HIGH);
+  pinMode(sonarTriggerPin, OUTPUT);
+  digitalWrite(sonarAwakePin, HIGH);
   wakeup_radio();
   ADCSRA |= (1 << ADEN); // Enable ADC
+  // Let the sonar "boot up"
+  delay(5000);
+  pinMode(debugModePin, INPUT_PULLUP);
+  pinMode(burstModePin, INPUT_PULLUP);
 }
 
 
@@ -302,13 +371,13 @@ void get_timestamp(char tbuf[19])
 void init_datetime(int arg_cnt, char **args)
 {
   uint8_t year, month, day, weekday;
-  
+
   year = chibiCmdStr2Num(args[1], 10);
   month = chibiCmdStr2Num(args[2], 10);
   day = chibiCmdStr2Num(args[3], 10);
   weekday = chibiCmdStr2Num(args[4], 10);
   pcf.writeDate(2016, 1, 24, 6);
-  
+
   pcf.readDate(&year, &month, &day, &weekday);
   printf("Year: %d, Month: %d, Day: %d, Weekday: %d\n", year, month, day, weekday);
 }
@@ -328,7 +397,7 @@ void init_datetime(int arg_cnt, char **args)
 void cmdGetShortAddr(int arg_cnt, char **args)
 {
   int val;
-  
+
   val = chibiGetShortAddr();
   Serial.print("Short Address: "); Serial.println(val, HEX);
 }
@@ -342,9 +411,21 @@ void cmdGetShortAddr(int arg_cnt, char **args)
 void cmdSetShortAddr(int arg_cnt, char **args)
 {
   int val;
-  
+
   val = chibiCmdStr2Num(args[1], 16);
   chibiSetShortAddr(val);
+}
+
+/**************************************************************************/
+/*!
+    Instructs the board to leave the debug mode and start the regular power
+    cycle
+    Usage: start
+*/
+/**************************************************************************/
+void cmdStartCycle(int arg_cnt, char **args)
+{
+  debug_mode = 0;
 }
 
 /**************************************************************************/
@@ -361,11 +442,62 @@ void cmdSend(int arg_cnt, char **args)
 
     // convert cmd line string to integer with specified base
     addr = chibiCmdStr2Num(args[1], 16);
-    
+
     // concatenate strings typed into the command line and send it to
     // the specified address
-    len = strCat((char *)data, 2, arg_cnt, args);    
+    len = strCat((char *)data, 2, arg_cnt, args);
     chibiTx(addr, data,len);
+}
+
+/**************************************************************************/
+/*!
+    Reads the configuration of the node's ids in the eeprom and prints it.
+    Each id is a 32 unsigned integer, taking 4 bytes.
+    Usage: rconf
+*/
+/**************************************************************************/
+void cmdReadConf(int arg_cnt, char** args)
+{
+  uint16_t addr = EEPROM_CONF_ADDR;
+  chb_eeprom_read(addr, (U8 *)(&(main_packet.node_id)), 4); addr+=4;
+  chb_eeprom_read(addr, (U8 *)(&(main_packet.vsol.sensor_id)), 4); addr+=4;
+  chb_eeprom_read(addr, (U8 *)(&(main_packet.vbat.sensor_id)), 4); addr+=4;
+  chb_eeprom_read(addr, (U8 *)(&(main_packet.temperature.sensor_id)), 4); addr+=4;
+  chb_eeprom_read(addr, (U8 *)(&(main_packet.humidity.sensor_id)), 4); addr+=4;
+  chb_eeprom_read(addr, (U8 *)(&(main_packet.distance_to_water_surface.sensor_id)), 4); addr+=4;
+  char sbuf[SBUF_SIZE];
+  sprintf(sbuf, "Node_id: %d\n\r  vsol_id: %d\n\r  vbat_id: %d\n\r  temperature_id: %d\n\r  humidity_id: %d\n\r  sonar_id: %d",
+                (int) main_packet.node_id,
+                (int) main_packet.vsol.sensor_id,
+                (int) main_packet.vbat.sensor_id,
+                (int) main_packet.temperature.sensor_id,
+                (int) main_packet.humidity.sensor_id,
+                (int) main_packet.distance_to_water_surface.sensor_id);
+  Serial.println(sbuf);
+}
+
+/**************************************************************************/
+/*!
+    Writes the configuration of the node's ids in the eeprom and prints it.
+    Each id is a 32 unsigned integer, taking 4 bytes.
+    Usage: wconf node_id vsol_id vbat_id temperature_id humidity_id sonar_id
+*/
+/**************************************************************************/
+void cmdWriteConf(int arg_cnt, char** args)
+{
+  main_packet.node_id =           strtol(args[1], NULL, 10);
+  main_packet.vsol.sensor_id =    strtol(args[2], NULL, 10);
+  main_packet.vbat.sensor_id =    strtol(args[3], NULL, 10);
+  main_packet.temperature.sensor_id =               strtol(args[4], NULL, 10);
+  main_packet.humidity.sensor_id =                  strtol(args[5], NULL, 10);
+  main_packet.distance_to_water_surface.sensor_id = strtol(args[6], NULL, 10);
+  uint16_t addr = EEPROM_CONF_ADDR;
+  chb_eeprom_write(addr, (U8 *)(&(main_packet.node_id)), 4); addr+=4;
+  chb_eeprom_write(addr, (U8 *)(&(main_packet.vsol.sensor_id)), 4); addr+=4;
+  chb_eeprom_write(addr, (U8 *)(&(main_packet.vbat.sensor_id)), 4); addr+=4;
+  chb_eeprom_write(addr, (U8 *)(&(main_packet.temperature.sensor_id)), 4); addr+=4;
+  chb_eeprom_write(addr, (U8 *)(&(main_packet.humidity.sensor_id)), 4); addr+=4;
+  chb_eeprom_write(addr, (U8 *)(&(main_packet.distance_to_water_surface.sensor_id)), 4); addr+=4;
 }
 
 /**************************************************************************/
@@ -407,68 +539,6 @@ void cmdVsolRead(int arg_cnt, char **args)
   Serial.print("Solar voltage: "); Serial.println((float)(s/1000.0), 1);
 }
 
-/**************************************************************************/
-/*!
-
-*/
-/**************************************************************************/
-void cmdSdWrite(int arg_cnt, char **args)
-{
-    char data[1000];
-
-    // concatenate strings typed into the command line and send it to
-    // the specified address
-    strCat(data, 1, arg_cnt, args);
-
-    if (myFile.open(FILENAME, O_RDWR | O_CREAT | O_AT_END))
-
-    {
-      myFile.write(data);
-      myFile.close();
-    }
-    else
-    {
-      printf("Error opening dataFile\n");
-    }
-}
-
-/**************************************************************************/
-/*!
-
-*/
-/**************************************************************************/
-void cmdSdRead()
-{
-    if (myFile.open(FILENAME, O_READ))
-
-    {
-      char data[101];
-      myFile.read(data, 100);
-      Serial.print((char *)data);
-      myFile.close();
-    }
-    else
-    {
-      printf("Error opening dataFile\n");
-    }
-}
-
-/**************************************************************************/
-/*!
-
-*/
-/**************************************************************************/
-void cmdSdClear()
-{
-    if (myFile.open(FILENAME, O_RDWR | O_CREAT | O_TRUNC))
-    {
-      myFile.close();
-    }
-    else
-    {
-      printf("Error opening dataFile\n");
-    }
-}
 
 /**************************************************************************/
 /*!
@@ -511,29 +581,29 @@ void cmd_reg_write(int arg_cnt, char **args)
 
 
 /**************************************************************************/
-// 
+//
 /**************************************************************************/
 void cmdSleepMcu(int arg_cnt, char **args)
 {
   printf("Sleeping MCU\n");
   delay(100);
-  
+
   // set pullups on inputs
 //  pinMode(sdCsPin, INPUT);
 //nn  digitalWrite(sdCsPin, HIGH);
-  
+
 //  pinMode(sdDetectPin, INPUT);
   digitalWrite(sdDetectPin, LOW);
 
   digitalWrite(ledPin, LOW);
-  
+
   attachInterrupt(2, rtcInterrupt, FALLING);
   delay(100);
 
   set_sleep_mode(SLEEP_MODE_PWR_DOWN);
   chibiSleepRadio(0);
   sleep_enable();        // setting up for sleep ...
-  
+
   ADCSRA &= ~(1 << ADEN);    // Disable ADC
   sleep_mode();
 
@@ -544,33 +614,33 @@ void cmdSleepMcu(int arg_cnt, char **args)
 }
 
 /**************************************************************************/
-// 
+//
 /**************************************************************************/
 void cmdSleepRadio(int arg_cnt, char **args)
 {
   int val = strtol(args[1], NULL, 10);
-  
+
   if (val)
   {
     digitalWrite(hgmPin, LOW);
-  
+
     // set up chibi regs to turn off external P/A
     chibiRegWrite(0x4, 0x20);
   }
   else
   {
     digitalWrite(hgmPin, HIGH);
-    
+
     // set up chibi regs to turn on external P/A
     chibiRegWrite(0x4, 0xA0);
   }
-  
+
   // turn on/off radio
   chibiSleepRadio(val);
 }
 
 /**************************************************************************/
-// 
+//
 /**************************************************************************/
 
 
@@ -578,56 +648,131 @@ void cmdReadDateTime(int arg_cnt, char **args)
 {
   uint8_t hours, minutes, seconds;
   uint8_t year, month, day, weekday;
-  
+
   pcf.readTime(&hours, &minutes, &seconds);
   pcf.readDate(&year, &month, &day, &weekday);
-  
+
   printf("Year: %d, Month: %d, Day: %d, Weekday: %d Hours: %d, Minutes: %d, Seconds: %d\n", year, month, day, weekday, hours, minutes, seconds);
 }
 
 /**************************************************************************/
-// 
+//
 /**************************************************************************/
 void cmdWriteTime(int arg_cnt, char **args)
 {
   uint8_t hours, minutes, seconds;
-  
+
   hours = chibiCmdStr2Num(args[1], 10);
   minutes = chibiCmdStr2Num(args[2], 10);
   seconds = chibiCmdStr2Num(args[3], 10);
   pcf.writeTime(hours, minutes, seconds);
-  
+
   pcf.readTime(&hours, &minutes, &seconds);
   printf("Hours: %d, Minutes: %d, Seconds: %d\n", hours, minutes, seconds);
 }
 
 /**************************************************************************/
-// 
+//
 /**************************************************************************/
 void cmdWriteDate(int arg_cnt, char **args)
 {
   uint8_t year, month, day, weekday;
-  
+
   year = chibiCmdStr2Num(args[1], 10);
   month = chibiCmdStr2Num(args[2], 10);
   day = chibiCmdStr2Num(args[3], 10);
   weekday = chibiCmdStr2Num(args[4], 10);
   pcf.writeDate(year, month, day, weekday);
-  
+
   pcf.readDate(&year, &month, &day, &weekday);
   printf("Year: %d, Month: %d, Day: %d, Weekday: %d\n", year, month, day, weekday);
 }
 
+bool get_sonar(int32_t &distance){
+  int32_t duration;
+  digitalWrite(sonarTriggerPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(sonarTriggerPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(sonarTriggerPin, LOW);
+  duration = pulseIn(sonarEchoPin, HIGH);
 
+  distance = (duration/2) / 29.1;
+  if (distance >= 200){
+    distance = 200;
+  }
+  if (distance < 0){
+    distance = 0;
+  }
+
+  /*digitalWrite(ledPin, HIGH);
+  delay(distance*10);
+  digitalWrite(ledPin, LOW);*/
+
+}
+
+#ifdef OneWireSensor
+bool get_temp_ow(int32_t &temperature){
+    byte addr[8];
+    byte present = 0;
+    byte data[12];
+
+    if ( !OW_temperature_probe.search(addr)) {
+      Serial.println("No more addresses.");
+      Serial.println();
+      OW_temperature_probe.reset_search();
+      delay(250);
+      temperature=0;
+      OW_temperature_probe.search(addr);
+    }
+    Serial.print("ROM =");
+    for( int i = 0; i < 8; i++) {
+      Serial.write(' ');
+      Serial.print(addr[i], HEX);
+    }
+
+    OW_temperature_probe.reset();
+    OW_temperature_probe.select(addr);
+    OW_temperature_probe.write(0x44, 1);
+    delay(1000);
+    present = OW_temperature_probe.reset();
+    OW_temperature_probe.select(addr);
+    OW_temperature_probe.write(0xBE);         // Read Scratchpad
+    Serial.print("  Data = ");
+    Serial.print(present, HEX);
+    Serial.print(" ");
+    for ( int i = 0; i < 9; i++) {           // we need 9 bytes
+      data[i] = OW_temperature_probe.read();
+      Serial.print(data[i], HEX);
+      Serial.print(" ");
+    }
+    Serial.print(" CRC=");
+    Serial.print(OneWire::crc8(data, 8), HEX);
+    Serial.println();
+
+    int16_t raw = (data[1] << 8) | data[0];
+    byte cfg = (data[4] & 0x60);
+    // at lower res, the low bits are undefined, so let's zero them
+    if (cfg == 0x00) raw = raw & ~7;  // 9 bit resolution, 93.75 ms
+    else if (cfg == 0x20) raw = raw & ~3; // 10 bit res, 187.5 ms
+    else if (cfg == 0x40) raw = raw & ~1; // 11 bit res, 375 ms
+    //// default is 12 bit resolution, 750 ms conversion time
+    float celsius = (float)raw / 16.0;
+    Serial.print("  Temperature = ");
+    Serial.println(celsius);
+    temperature = (int)(celsius*100);
+    return true;
+}
+#endif
 
 bool get_temp(int32_t &temperature, int32_t& humidity){
-    
+
     // It's ugly, isn't it?
-    int pin = 8;
+    int pin = sensorPin;
     int ret = 0;
     uint8_t bits[5];
     const int DHTLIB_TIMEOUT = (F_CPU/40000);
-  
+
     // INIT BUFFERVAR TO RECEIVE DATA
     uint8_t mask = 128;
     uint8_t idx = 0;
@@ -641,7 +786,7 @@ bool get_temp(int32_t &temperature, int32_t& humidity){
 
     // REQUEST SAMPLE
     pinMode(pin, OUTPUT);
-    digitalWrite(pin, LOW); // T-be 
+    digitalWrite(pin, LOW); // T-be
     delay(18);  //delay(wakeupDelay);
     digitalWrite(pin, HIGH);   // T-go
     delayMicroseconds(40);
@@ -678,7 +823,7 @@ bool get_temp(int32_t &temperature, int32_t& humidity){
         }
 
         if ((micros() - t) > 40)
-        { 
+        {
             bits[idx] |= mask;
         }
         mask >>= 1;
@@ -726,7 +871,7 @@ void cmd_tx2(int arg_cnt, char **args)
     int i, addr, len;
 
     addr = chibiCmdStr2Num(args[1], 16);
-    
+
     for (i=0; i<1000; i++)
     {
       sprintf((char *)data, "%04d", i);
@@ -774,3 +919,76 @@ static int uart_putchar (char c, FILE *stream)
 
 
 
+/**************************************************************************/
+/*!
+
+*/
+/**************************************************************************/
+void cmdSdWrite(int arg_cnt, char **args)
+{
+    char data[1000];
+
+    // concatenate strings typed into the command line and send it to
+    // the specified address
+    strCat(data, 1, arg_cnt, args);
+
+    SdWriteBuf(data);
+}
+
+/**************************************************************************/
+/*!
+
+*/
+/**************************************************************************/
+void SdWriteBuf(char *data)
+{
+    if (myFile.open(FILENAME, O_RDWR | O_CREAT | O_AT_END))
+
+    {
+      myFile.write(data);
+      myFile.close();
+    }
+    else
+    {
+      printf("Error opening dataFile\n");
+    }
+}
+
+
+/**************************************************************************/
+/*!
+
+*/
+/**************************************************************************/
+void cmdSdRead()
+{
+    if (myFile.open(FILENAME, O_READ))
+
+    {
+      char data[101];
+      myFile.read(data, 100);
+      Serial.print((char *)data);
+      myFile.close();
+    }
+    else
+    {
+      printf("Error opening dataFile\n");
+    }
+}
+
+/**************************************************************************/
+/*!
+
+*/
+/**************************************************************************/
+void cmdSdClear()
+{
+    if (myFile.open(FILENAME, O_RDWR | O_CREAT | O_TRUNC))
+    {
+      myFile.close();
+    }
+    else
+    {
+      printf("Error opening dataFile\n");
+    }
+}
