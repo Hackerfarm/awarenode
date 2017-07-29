@@ -64,7 +64,8 @@ void loop()
     Serial.print("\t");*/
     if (len)
     {
-      Serial.println((char*)(buf));
+      Serial.print("Received a packet of length ");
+      Serial.println(len);
       chibiTx(BROADCAST_ADDR, (unsigned char*)(&buf), len);
 
     }
