@@ -212,3 +212,4 @@ sketches/sdtest/sdtest.ino
 ../libraries/SdFat/StdioStream.cpp
 ../libraries/SdFat/StdioStream.h
 ../libraries/readme.txt
+sketches/datadownloader/datadownloader.ino

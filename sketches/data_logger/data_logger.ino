@@ -21,7 +21,8 @@ typedef struct{
 typedef struct{
   reading_t vsol;
   reading_t vbat;
-  reading_t temperature;
+  reading_t temperatureGround;
+  reading_t temperatureAir;
   reading_t humidity;
   reading_t distance_to_water_surface;
   int32_t count;
@@ -51,6 +52,7 @@ awarenode_packet_t main_packet;
 #define FILENAME "AWANODE.TXT"
 
 #define OneWireSensor 1
+#define SONAR 0
 
 int hgmPin = 22;
 int sdCsPin = 15;
@@ -59,10 +61,16 @@ int ledPin = 18;
 int sdDetectPin = 19;
 int vbatPin = 31;
 int vsolPin = 29;
-int sensorPin = 8;
+int oneWirePin = 8;
+int DH11sensorPin = 5;
+
+
+#if SONAR
 int sonarTriggerPin = 5;
 int sonarEchoPin = 7;
 int sonarAwakePin = 10;
+#endif
+
 int debugModePin = 4;
 int burstModePin = 3;
 
@@ -81,7 +89,7 @@ SdFat sd;
 SdFile myFile;
 
 #ifdef OneWireSensor
-OneWire OW_temperature_probe(sensorPin);
+OneWire OW_temperature_probe(oneWirePin);
 #endif
 
 
@@ -121,11 +129,16 @@ void setup()
   //delay(300);
   //digitalWrite(ledPin, LOW);
 
+#if SONAR
   // set up the sonar
   pinMode(sonarTriggerPin, OUTPUT);
   pinMode(sonarEchoPin, INPUT);
   pinMode(sonarAwakePin, OUTPUT);
   digitalWrite(sonarAwakePin, HIGH);
+#endif
+
+  // DH11 sensor
+  pinMode(DH11sensorPin, INPUT);
 
   // set up the burst and debug mode pin
   pinMode(debugModePin, INPUT_PULLUP);
@@ -204,13 +217,16 @@ void setup()
   chibiCmdAdd("sdw", cmdSdWrite);
   chibiCmdAdd("sdr", cmdSdRead);
   chibiCmdAdd("sdc", cmdSdClear);
+  chibiCmdAdd("sdd", cmdDumpData);
 
 
   // high gain mode
   digitalWrite(hgmPin, HIGH);
   if(digitalRead(debugModePin)==LOW){
     debug_mode = 1;
+#if SONAR
     digitalWrite(sonarAwakePin, HIGH);
+#endif
   }
 
 }
@@ -228,16 +244,20 @@ void loop()
     return;
   }
 
+  #if SONAR
   digitalWrite(sonarAwakePin, HIGH);
+  #endif
 
 #ifdef OneWireSensor
-  get_temp_ow(main_packet.temperature.value);
+  get_temp_ow(main_packet.temperatureGround.value);
 #else
-  get_temp(main_packet.temperature.value, main_packet.humidity.value);
+
 #endif
+  get_temp(main_packet.temperatureAir.value, main_packet.humidity.value);
   get_vbat(main_packet.vbat.value);
   get_vsol(main_packet.vsol.value);
-  get_sonar(main_packet.distance_to_water_surface.value);
+  #if SONAR
+  //get_sonar(main_packet.distance_to_water_surface.value);
   delay(1000);
   get_sonar(main_packet.distance_to_water_surface.value);
   /*if(r.sonar.value>10){
@@ -246,6 +266,7 @@ void loop()
   else{
     digitalWrite(sonarAwakePin, HIGH);
   }*/
+#endif
   main_packet.count++;
   get_timestamp(main_packet.timestamp);
 
@@ -254,11 +275,12 @@ void loop()
   Serial.println(sbuf);
 
 
-  sprintf(sbuf, "Node_id: %d, count: %d, timestamp: %19s, id %d: %dC (temperature), id %d: %d (humidity), id %d: %dmV (battery), id %d: %dmV (solar), id %d: %d cm (water level)",
+  sprintf(sbuf, "Node_id: %d, count: %d, timestamp: %19s, id %d: %dC (temperatureG), id %d: %dC (temperatureA), id %d: %d (humidity), id %d: %dmV (battery), id %d: %dmV (solar), id %d: %d cm (water level)",
                 (int) main_packet.node_id,
                 (int) main_packet.count,
                 (int) main_packet.timestamp,
-                (int) main_packet.temperature.sensor_id, (int) main_packet.temperature.value,
+                (int) main_packet.temperatureGround.sensor_id, (int) main_packet.temperatureGround.value,
+                (int) main_packet.temperatureAir.sensor_id, (int) main_packet.temperatureAir.value,
                 (int) main_packet.humidity.sensor_id, (int) main_packet.humidity.value,
                 (int) main_packet.vbat.sensor_id, (int) main_packet.vbat.value,
                 (int) main_packet.vsol.sensor_id, (int) main_packet.vsol.value,
@@ -266,16 +288,37 @@ void loop()
   Serial.println(sbuf);
   //chibiTx(EDGE_ID, (unsigned char*)(&main_packet), sizeof(main_packet));
 
-
-  sprintf(sbuf, "%s|%d|%d=%d;%d=%d;\n",
+    // Write to SD card
+  sprintf(sbuf, "%s|%d|%d=%d;%d=%d;d=%d;d=%d;d=%d;\n",
           (int)main_packet.timestamp,
           (int)main_packet.count,
-          (int)main_packet.temperature.sensor_id, (int) main_packet.temperature.value,
+          (int)main_packet.temperatureGround.sensor_id, (int) main_packet.temperatureGround.value,
+          (int)main_packet.temperatureAir.sensor_id, (int) main_packet.temperatureAir.value,
           (int)main_packet.humidity.sensor_id, (int) main_packet.humidity.value,
           (int)main_packet.vbat.sensor_id, (int)main_packet.vbat.value,
           (int)main_packet.vsol.sensor_id, (int)main_packet.vsol.value);
   SdWriteBuf(sbuf);
   Serial.println(sbuf);
+
+  //Check for radio commands
+  if (chibiDataRcvd() == true)
+  {
+    int rssi, src_addr, len;
+    len = chibiGetData(buf);
+    if (len == 0) {
+      Serial.println("Null packet received");
+      return;
+    }
+    if (strcmp(data, "DUMPDATA")==0)
+    {
+        CmdDumpData(myFile);
+    }
+
+    // retrieve the data and the signal strength
+    rssi = chibiGetRSSI();
+    src_addr = chibiGetSrcAddr();
+  }
+
 
   free(sbuf);
   sleep_mcu();
@@ -305,8 +348,10 @@ void wakeup_radio(){
 
 void sleep_mcu(){
   attachInterrupt(2, rtcInterrupt, FALLING);
+  #if SONAR
   digitalWrite(sonarAwakePin, LOW);
   pinMode(sonarTriggerPin, INPUT);
+#endif
 
   pinMode(debugModePin, INPUT);
   pinMode(burstModePin, INPUT);
@@ -343,8 +388,12 @@ void sleep_mcu(){
   sleep_disable();
   Serial.println("Awake");
   digitalWrite(ledPin, HIGH);
+
+#if SONAR
   pinMode(sonarTriggerPin, OUTPUT);
   digitalWrite(sonarAwakePin, HIGH);
+#endif
+
   wakeup_radio();
   ADCSRA |= (1 << ADEN); // Enable ADC
   // Let the sonar "boot up"
@@ -462,7 +511,7 @@ void cmdReadConf(int arg_cnt, char** args)
   chb_eeprom_read(addr, (U8 *)(&(main_packet.node_id)), 4); addr+=4;
   chb_eeprom_read(addr, (U8 *)(&(main_packet.vsol.sensor_id)), 4); addr+=4;
   chb_eeprom_read(addr, (U8 *)(&(main_packet.vbat.sensor_id)), 4); addr+=4;
-  chb_eeprom_read(addr, (U8 *)(&(main_packet.temperature.sensor_id)), 4); addr+=4;
+  chb_eeprom_read(addr, (U8 *)(&(main_packet.temperatureGround.sensor_id)), 4); addr+=4;
   chb_eeprom_read(addr, (U8 *)(&(main_packet.humidity.sensor_id)), 4); addr+=4;
   chb_eeprom_read(addr, (U8 *)(&(main_packet.distance_to_water_surface.sensor_id)), 4); addr+=4;
   char sbuf[SBUF_SIZE];
@@ -470,7 +519,7 @@ void cmdReadConf(int arg_cnt, char** args)
                 (int) main_packet.node_id,
                 (int) main_packet.vsol.sensor_id,
                 (int) main_packet.vbat.sensor_id,
-                (int) main_packet.temperature.sensor_id,
+                (int) main_packet.temperatureGround.sensor_id,
                 (int) main_packet.humidity.sensor_id,
                 (int) main_packet.distance_to_water_surface.sensor_id);
   Serial.println(sbuf);
@@ -488,14 +537,14 @@ void cmdWriteConf(int arg_cnt, char** args)
   main_packet.node_id =           strtol(args[1], NULL, 10);
   main_packet.vsol.sensor_id =    strtol(args[2], NULL, 10);
   main_packet.vbat.sensor_id =    strtol(args[3], NULL, 10);
-  main_packet.temperature.sensor_id =               strtol(args[4], NULL, 10);
+  main_packet.temperatureGround.sensor_id =               strtol(args[4], NULL, 10);
   main_packet.humidity.sensor_id =                  strtol(args[5], NULL, 10);
   main_packet.distance_to_water_surface.sensor_id = strtol(args[6], NULL, 10);
   uint16_t addr = EEPROM_CONF_ADDR;
   chb_eeprom_write(addr, (U8 *)(&(main_packet.node_id)), 4); addr+=4;
   chb_eeprom_write(addr, (U8 *)(&(main_packet.vsol.sensor_id)), 4); addr+=4;
   chb_eeprom_write(addr, (U8 *)(&(main_packet.vbat.sensor_id)), 4); addr+=4;
-  chb_eeprom_write(addr, (U8 *)(&(main_packet.temperature.sensor_id)), 4); addr+=4;
+  chb_eeprom_write(addr, (U8 *)(&(main_packet.temperatureGround.sensor_id)), 4); addr+=4;
   chb_eeprom_write(addr, (U8 *)(&(main_packet.humidity.sensor_id)), 4); addr+=4;
   chb_eeprom_write(addr, (U8 *)(&(main_packet.distance_to_water_surface.sensor_id)), 4); addr+=4;
 }
@@ -688,6 +737,7 @@ void cmdWriteDate(int arg_cnt, char **args)
   printf("Year: %d, Month: %d, Day: %d, Weekday: %d\n", year, month, day, weekday);
 }
 
+#if SONAR
 bool get_sonar(int32_t &distance){
   int32_t duration;
   digitalWrite(sonarTriggerPin, LOW);
@@ -710,6 +760,7 @@ bool get_sonar(int32_t &distance){
   digitalWrite(ledPin, LOW);*/
 
 }
+#endif
 
 #ifdef OneWireSensor
 bool get_temp_ow(int32_t &temperature){
@@ -768,7 +819,7 @@ bool get_temp_ow(int32_t &temperature){
 bool get_temp(int32_t &temperature, int32_t& humidity){
 
     // It's ugly, isn't it?
-    int pin = sensorPin;
+    int pin = DH11sensorPin;
     int ret = 0;
     uint8_t bits[5];
     const int DHTLIB_TIMEOUT = (F_CPU/40000);
@@ -960,14 +1011,57 @@ void SdWriteBuf(char *data)
 
 */
 /**************************************************************************/
+bool SdReadLine(SdFile& file, char* buf, int maxlen=200)
+{
+    char* cur = buf;
+    int ind=0;
+    while(1)
+    {
+        int16_t r = file.read();
+        if(r==-1)
+            return false;
+        *cur = (uint8_t)(r);
+        if(*cur=='\n')
+        {
+            *cur=0;
+            return true;
+        }
+        cur++;
+        ind++;
+        if(ind==maxlen) return false;
+    }
+}
+
+
 void cmdSdRead()
 {
     if (myFile.open(FILENAME, O_READ))
-
     {
-      char data[101];
-      myFile.read(data, 100);
-      Serial.print((char *)data);
+        bool ok=true;
+        while(ok)
+        {
+            char data[201];
+            ok = SdReadLine(myFile, (char *)data);
+            Serial.println((char *)data);
+        }
+        myFile.close();
+    }
+    else
+    {
+      printf("Error opening dataFile\n");
+    }
+}
+
+
+/**************************************************************************/
+/*!
+
+*/
+/**************************************************************************/
+void cmdSdClear()
+{
+    if (myFile.open(FILENAME, O_RDWR | O_CREAT | O_TRUNC))
+    {
       myFile.close();
     }
     else
@@ -981,11 +1075,20 @@ void cmdSdRead()
 
 */
 /**************************************************************************/
-void cmdSdClear()
+
+void cmdDumpData()
 {
-    if (myFile.open(FILENAME, O_RDWR | O_CREAT | O_TRUNC))
+    if (myFile.open(FILENAME, O_READ))
     {
-      myFile.close();
+        bool ok=true;
+        while(ok)
+        {
+            char data[201];
+            ok = SdReadLine(myFile, (char *)data);
+            chibiTx(EDGE_ID, (unsigned char*)(&data), strlen(data));
+            Serial.println((char *)data);
+        }
+        myFile.close();
     }
     else
     {

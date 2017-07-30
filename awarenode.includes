@@ -79,3 +79,4 @@
 ../libraries/OneWire/examples/DS18x20_Temperature
 ../libraries/Ethernet/examples/WebClient
 ../libraries/SdFat/examples/StressTest
+sketches/datadownloader
