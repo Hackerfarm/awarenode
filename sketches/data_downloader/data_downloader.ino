@@ -1,45 +1,41 @@
 #include <chibi.h>
 #include <Wire.h>
+#include <Ethernet.h>
 #include <stdint.h>
 
-int hgmPin = 22;
-int ledPin = 18;
-int vbatPin = 31;
-int vsolPin = 29;
-int led_state = 1;
+bool received_data = false;
 
 #define ADCREFVOLTAGE 3.3
 #define NODE_ID 300
 #define RX_BUFSIZE 1000
 
+#define RX_BUFSIZE 1000
+
+#define NODE_ID 333
+
+int ledPin = 4;
+
 unsigned char buf[RX_BUFSIZE];
 
-void setup()
-{    
-	// set up high gain mode pin
-  pinMode(hgmPin, OUTPUT);
-  digitalWrite(hgmPin, LOW);
-  
-  // set up battery monitoring
-  pinMode(vbatPin, INPUT);
-  
-  // set up LED
-  pinMode(ledPin, OUTPUT);
-  digitalWrite(ledPin, LOW);
+byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
+IPAddress ip(192, 168, 1, 177);
 
-  // Initialize the chibi command line and set the speed to 57600 bps
-  chibiCmdInit(57600);
-  
-  // Initialize the chibi wireless stack
+void setup() {
+  Serial.begin(57600);
+  // ethernet chip select pin
+  // do not remove or the radio won't initialize correctly
+  pinMode(31, OUTPUT);
+  digitalWrite(31, HIGH);
+
+  Serial.println("Data Downloader Arashi v0.1");
+  Serial.println("Init chibi stack");
+
+
   chibiInit();
-  
-  // datecode version
-  Serial.println("Repeater Saboten v0.1");
-
-  // high gain mode
-  digitalWrite(hgmPin, HIGH);
-
-  
+  chibiSetShortAddr(NODE_ID);
+  Serial.println("Init chibi stack complete");
+  pinMode(ledPin, OUTPUT);
+  Ethernet.begin(mac, ip);
 }
 
 /**************************************************************************/
@@ -47,6 +43,13 @@ void setup()
 /**************************************************************************/
 void loop()
 {
+
+  if(!received_data)
+  {
+      chibiTx(BROADCAST_ADDR, "DUMPDATA", strlen("DUMPDATA")+1);
+      delay(100);
+  }
+
   if (chibiDataRcvd() == true)
   { 
     int rssi, src_addr, len;
@@ -55,20 +58,8 @@ void loop()
       Serial.println("Null packet received");
       return;
     }
-    
-    // retrieve the data and the signal strength
-    /*rssi = chibiGetRSSI();
-    src_addr = chibiGetSrcAddr();
-    Serial.print("Signal strength: ");
-    Serial.print(rssi);
-    Serial.print("\t");*/
-    if (len)
-    {
-      Serial.print("Received a packet of length ");
-      Serial.println(len);
-      chibiTx(BROADCAST_ADDR, (unsigned char*)(&buf), len);
-
-    }
+    Serial.println((char *)(buf));
+    received_data = true;
   }
 }
 

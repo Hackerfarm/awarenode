@@ -1,5 +1,5 @@
 sketches/arashi_edge/arashi_edge.ino
-sketches/datalogger/datalogger.ino
+sketches/data_logger/data_logger.ino
 sketches/range_test_arashi/range_test_arashi.ino
 sketches/range_test_saboten/range_test_saboten.ino
 sketches/repeater_saboten/repeater_saboten.ino
@@ -212,4 +212,4 @@ sketches/sdtest/sdtest.ino
 ../libraries/SdFat/StdioStream.cpp
 ../libraries/SdFat/StdioStream.h
 ../libraries/readme.txt
-sketches/datadownloader/datadownloader.ino
+sketches/data_downloader/data_downloader.ino

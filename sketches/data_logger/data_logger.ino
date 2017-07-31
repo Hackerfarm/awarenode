@@ -46,7 +46,7 @@ awarenode_packet_t main_packet;
 
 #define EEPROM_CONF_ADDR 0x12
 
-#define DATECODE "14-08-2016"
+#define DATECODE "31-07-2017"
 #define TITLE "SABOTEN 900 MHz Long Range\nDATALOGGER\n"
 #define ADCREFVOLTAGE 3.3
 #define FILENAME "AWANODE.TXT"
@@ -167,9 +167,6 @@ void setup()
   printf(TITLE);
   printf("Datecode: %s\n\r", DATECODE);
 
-  pcf.writeDate(16, 1, 29, 4);
-  pcf.writeTime(10, 15, 0);
-
   chibiSetShortAddr(main_packet.node_id);
 
   // check for SD and init
@@ -289,7 +286,7 @@ void loop()
   //chibiTx(EDGE_ID, (unsigned char*)(&main_packet), sizeof(main_packet));
 
     // Write to SD card
-  sprintf(sbuf, "%s|%d|%d=%d;%d=%d;d=%d;d=%d;d=%d;\n",
+  sprintf(sbuf, "%s|%d|%d=%d;%d=%d;%d=%d;%d=%d;%d=%d;\n",
           (int)main_packet.timestamp,
           (int)main_packet.count,
           (int)main_packet.temperatureGround.sensor_id, (int) main_packet.temperatureGround.value,
@@ -309,9 +306,9 @@ void loop()
       Serial.println("Null packet received");
       return;
     }
-    if (strcmp(data, "DUMPDATA")==0)
+    if (strcmp(buf, "DUMPDATA")==0)
     {
-        CmdDumpData(myFile);
+        cmdDumpData();
     }
 
     // retrieve the data and the signal strength
@@ -1078,6 +1075,7 @@ void cmdSdClear()
 
 void cmdDumpData()
 {
+    Serial.println("Starting data dump");
     if (myFile.open(FILENAME, O_READ))
     {
         bool ok=true;
@@ -1085,8 +1083,9 @@ void cmdDumpData()
         {
             char data[201];
             ok = SdReadLine(myFile, (char *)data);
-            chibiTx(EDGE_ID, (unsigned char*)(&data), strlen(data));
+            chibiTx(EDGE_ID, (unsigned char*)(&data), strlen(data)+1);
             Serial.println((char *)data);
+            Serial.println("_");
         }
         myFile.close();
     }
