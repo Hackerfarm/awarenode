@@ -1,0 +1,2 @@
+2017-07-31
+Strange behavior in my set up: sending of radio data seems to halt the initialization of the data_logger. Investigating this now.
