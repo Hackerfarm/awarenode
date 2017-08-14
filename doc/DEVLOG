@@ -1,2 +1,7 @@
-2017-07-31
-Strange behavior in my set up: sending of radio data seems to halt the initialization of the data_logger. Investigating this now.
+SdFat & Chibi interaction
+
+There seems to be a bug in the interaction between SdFAT and the chibi radio stack. When SdFat is loaded, if a lot of packets are sent to the radio, the system freezes. If SdFat is removed, this problem disappears. It may be a Chip Select problem. 
+
+For now I will do things so that I don't use the radio while accessing the SD card.
+
+Drawback: there is an easy way to DDOS the saboten in the data_logger mode: send it a lot of radio data.

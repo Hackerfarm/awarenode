@@ -213,3 +213,4 @@ sketches/sdtest/sdtest.ino
 ../libraries/SdFat/StdioStream.h
 ../libraries/readme.txt
 sketches/data_downloader/data_downloader.ino
+sketches/radio_test/radio_test.ino

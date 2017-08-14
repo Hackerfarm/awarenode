@@ -46,8 +46,8 @@ void loop()
 
   if(!received_data)
   {
-      chibiTx(BROADCAST_ADDR, "DUMPDATA", strlen("DUMPDATA")+1);
-      delay(100);
+      //chibiTx(BROADCAST_ADDR, "DUMPDATA", strlen("DUMPDATA")+1);
+      //delay(100);
   }
 
   if (chibiDataRcvd() == true)

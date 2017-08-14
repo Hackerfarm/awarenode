@@ -154,8 +154,6 @@ void setup()
 //  pcf.setInterruptToPulse();
   attachInterrupt(2, rtcInterrupt, FALLING);
 
-  // Initialize the chibi wireless stack
-  chibiInit();
 
   // Reads the node and sensors ID from the EEPROM
   cmdReadConf(0,0);
@@ -167,7 +165,7 @@ void setup()
   printf(TITLE);
   printf("Datecode: %s\n\r", DATECODE);
 
-  chibiSetShortAddr(main_packet.node_id);
+
 
   // check for SD and init
   uint8_t sdDetect;
@@ -225,6 +223,12 @@ void setup()
     digitalWrite(sonarAwakePin, HIGH);
 #endif
   }
+
+  // Initialize the chibi wireless stack
+  chibiSetShortAddr(main_packet.node_id);
+  chibiInit();
+  chibiSetShortAddr(main_packet.node_id);
+
 
 }
 
@@ -298,7 +302,7 @@ void loop()
   Serial.println(sbuf);
 
   //Check for radio commands
-  if (chibiDataRcvd() == true)
+  /*if (chibiDataRcvd() == true)
   {
     int rssi, src_addr, len;
     len = chibiGetData(buf);
@@ -314,8 +318,9 @@ void loop()
     // retrieve the data and the signal strength
     rssi = chibiGetRSSI();
     src_addr = chibiGetSrcAddr();
-  }
+  }*/
 
+  cmdDumpData();
 
   free(sbuf);
   sleep_mcu();
@@ -345,11 +350,14 @@ void wakeup_radio(){
 
 void sleep_mcu(){
   attachInterrupt(2, rtcInterrupt, FALLING);
-  #if SONAR
+#if SONAR
   digitalWrite(sonarAwakePin, LOW);
   pinMode(sonarTriggerPin, INPUT);
 #endif
 
+#if OneWireSensor
+  pinMode(oneWirePin, INPUT);
+#endif
   pinMode(debugModePin, INPUT);
   pinMode(burstModePin, INPUT);
 
@@ -397,6 +405,9 @@ void sleep_mcu(){
   delay(5000);
   pinMode(debugModePin, INPUT_PULLUP);
   pinMode(burstModePin, INPUT_PULLUP);
+#if OneWireSensor
+  pinMode(oneWirePin, INPUT_PULLUP);
+#endif
 }
 
 
@@ -1039,7 +1050,7 @@ void cmdSdRead()
         {
             char data[201];
             ok = SdReadLine(myFile, (char *)data);
-            Serial.println((char *)data);
+            if(ok) Serial.println((char *)data);
         }
         myFile.close();
     }
@@ -1083,9 +1094,10 @@ void cmdDumpData()
         {
             char data[201];
             ok = SdReadLine(myFile, (char *)data);
-            chibiTx(EDGE_ID, (unsigned char*)(&data), strlen(data)+1);
-            Serial.println((char *)data);
-            Serial.println("_");
+            if(ok){
+                chibiTx(EDGE_ID, (unsigned char*)(&data), strlen(data)+1);
+                Serial.println((char *)data);
+            }
         }
         myFile.close();
     }
